@@ -15,7 +15,9 @@ import loader as ld
 
 batch_size = 32
 output_size = 2
-hidden_size = 64  # to experiment with
+
+hidden_size = 64  # Option 1
+# hidden_size = 128  # Option 2
 
 run_recurrent = True  # else run Token-wise MLP
 use_RNN = False  # otherwise GRU
@@ -246,7 +248,6 @@ if __name__ == '__main__':
         for labels, reviews, reviews_text in train_dataset:  # getting training batches
 
             itr = itr + 1
-
             if (itr + 1) % test_interval == 0:
                 test_iter = True
                 labels, reviews, reviews_text = next(iter(test_dataset))  # get a test batch
@@ -256,7 +257,7 @@ if __name__ == '__main__':
             # Recurrent nets (RNN/GRU)
 
             if run_recurrent:
-                hidden_state = model.init_hidden(batch_size)
+                hidden_state = model.init_hidden(int(labels.shape[0]))
 
                 for i in range(num_words):
                     output, hidden_state = model(reviews[:, i, :], hidden_state)  # HIDE
@@ -277,7 +278,7 @@ if __name__ == '__main__':
 
             # cross-entropy loss
 
-            loss = criterion(output, labels)
+            loss = criterion(output, torch.argmax(labels, dim=1))
 
             # optimize in training iterations
 
