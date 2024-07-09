@@ -87,9 +87,16 @@ class ExGRU(nn.Module):
     def __init__(self, input_size, output_size, hidden_size):
         super(ExGRU, self).__init__()
         self.hidden_size = hidden_size
+        self.sigmoid = torch.sigmoid
+
         # GRU Cell weights
-        # self.something =
-        # etc ...
+        # Linear layers for reset gate, update gate, and candidate hidden state
+        self.reset_gate = nn.Linear(input_size + hidden_size, hidden_size)
+        self.update_gate = nn.Linear(input_size + hidden_size, hidden_size)
+        self.out_gate = nn.Linear(input_size + hidden_size, hidden_size)
+
+        # Fully connected layer for output
+        self.fc = nn.Linear(hidden_size, output_size)
 
     def name(self):
         return "GRU"
@@ -98,12 +105,33 @@ class ExGRU(nn.Module):
 
         # Implementation of GRU cell
 
-        # missing implementation
+        # Process each time step
+        for t in range(x.size(1)):
+            # Current input
+            x_t = x[:, t, :]
 
-        return output, hidden
+            # Concatenate input and hidden state
+            combined = torch.cat((x_t, hidden_state), dim=1)
+
+            # Compute gates
+            reset = self.sigmoid(self.reset_gate(combined))
+            update = self.sigmoid(self.update_gate(combined))
+
+            # Compute candidate hidden state
+            combined_reset = torch.cat((x_t, reset * hidden_state), dim=1)
+            h_candidate = torch.tanh(self.out_gate(combined_reset))
+
+            # Update hidden state
+            hidden_state = update * hidden_state + (1 - update) * h_candidate
+
+        # Apply fully connected layer to the final hidden state
+        output = self.fc(hidden_state)
+
+        return output, hidden_state
+
 
     def init_hidden(self):
-        return torch.zeros(bs, self.hidden_size)
+        return torch.zeros(batch_size, self.hidden_size)
 
 
 class ExMLP(nn.Module):
