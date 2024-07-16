@@ -7,6 +7,7 @@ import loader as ld
 import matplotlib.pyplot as plt
 
 from models.MatMul import MatMul
+from parameters import atten_size
 
 
 class ExLRestSelfAtten(nn.Module):
@@ -57,4 +58,4 @@ class ExLRestSelfAtten(nn.Module):
         # vals = ...
 
 
-        return x, atten_weights
+        # return x, atten_weights
