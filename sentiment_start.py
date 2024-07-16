@@ -1,219 +1,32 @@
-########################################################################
-########################################################################
-##                                                                    ##
-##                      ORIGINAL _ DO NOT PUBLISH                     ##
-##                                                                    ##
-########################################################################
-########################################################################
-
 import torch as tr
 import torch
 from torch.nn.functional import pad
 import torch.nn as nn
 import numpy as np
 import loader as ld
+import matplotlib.pyplot as plt
+from models.GRU import ExGRU
+from models.MLP import ExMLP
+from models.RNN import ExRNN
+from parameters import run_recurrent, use_RNN, output_size, hidden_size, atten_size, learning_rate, num_epochs, \
+    test_interval, batch_size, reload_model
 
-batch_size = 32
-output_size = 2
-
-hidden_size = 64  # Option 1
-# hidden_size = 128  # Option 2
-
-run_recurrent = True  # else run Token-wise MLP
-use_RNN = False  # otherwise GRU
-atten_size = 0  # atten > 0 means using restricted self atten
-
-reload_model = False
-num_epochs = 10
-learning_rate = 0.001
-test_interval = 50
-
-# Loading sataset, use toy = True for obtaining a smaller dataset
+# Loading dataset, use toy = True for obtaining a smaller dataset
 
 train_dataset, test_dataset, num_words, input_size = ld.get_data_set(batch_size)
 
 
-# Special matrix multipication layer (like torch.Linear but can operate on arbitrary sized
-# tensors and considers its last two indices as the matrix.)
-
-class MatMul(nn.Module):
-    def __init__(self, in_channels, out_channels, use_bias=True):
-        super(MatMul, self).__init__()
-        self.matrix = torch.nn.Parameter(torch.nn.init.xavier_normal_(torch.empty(in_channels, out_channels)),
-                                         requires_grad=True)
-        if use_bias:
-            self.bias = torch.nn.Parameter(torch.zeros(1, 1, out_channels), requires_grad=True)
-
-        self.use_bias = use_bias
-
-    def forward(self, x):
-        x = torch.matmul(x, self.matrix)
-        if self.use_bias:
-            x = x + self.bias
-        return x
+# Prints the review, average sub-scores, true label, predicted label, and sub-scores for each word
+def print_review(rev_text, avg_sub_score, true_label, predicted_label, sub_scores):
+    print(f"Review: {' '.join(rev_text)}")
+    print(f"Avg Sub-scores: {avg_sub_score}")
+    print(f"True Label: {true_label}")
+    print(f"Predicted Label: {predicted_label}")
+    print("Sub-scores for each word:")
+    for word, score in zip(rev_text, sub_scores):
+        print(f"  {word}: {score}")
 
 
-# Implements RNN Unit
-
-class ExRNN(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size):
-        super(ExRNN, self).__init__()
-
-        self.hidden_size = hidden_size
-        self.sigmoid = torch.sigmoid
-
-        # RNN Cell weights
-        self.in2hidden = nn.Linear(input_size + hidden_size, hidden_size)
-        self.hidden2out = nn.Linear(hidden_size, output_size)
-
-        # what else?
-
-    def name(self):
-        return "RNN"
-
-    def forward(self, x, hidden_state):
-        # Implementation of RNN cell
-        outputs = []
-        for t in range(x.size(1)):  # Iterate over time steps
-            combined = torch.cat((x[t, :], hidden_state), dim=1)  # Concatenate input and hidden state
-            hidden_state = torch.tanh(self.in2hidden(combined))  # Update hidden state
-            output = self.hidden2out(hidden_state)  # Calculate output
-            outputs.append(output.unsqueeze(1))  # Append output to list
-        outputs = torch.cat(outputs, dim=1)
-        return outputs, hidden_state
-
-    def init_hidden(self, bs):
-        return torch.zeros(bs, self.hidden_size)
-
-
-# Implements GRU Unit
-
-class ExGRU(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size):
-        super(ExGRU, self).__init__()
-        self.hidden_size = hidden_size
-        self.sigmoid = torch.sigmoid
-
-        # GRU Cell weights
-        # Linear layers for reset gate, update gate, and candidate hidden state
-        self.reset_gate = nn.Linear(input_size + hidden_size, hidden_size)
-        self.update_gate = nn.Linear(input_size + hidden_size, hidden_size)
-        self.out_gate = nn.Linear(input_size + hidden_size, hidden_size)
-
-        # Fully connected layer for output
-        self.fc = nn.Linear(hidden_size, output_size)
-
-    def name(self):
-        return "GRU"
-
-    def forward(self, x, hidden_state):
-        # Implementation of GRU cell
-
-        # Concatenate input and hidden state
-        combined = torch.cat((x, hidden_state), 1)
-
-        # Compute gates
-        reset = self.sigmoid(self.reset_gate(combined))
-        update = self.sigmoid(self.update_gate(combined))
-
-        # Compute candidate hidden state
-        combined_reset = torch.cat((x, reset * hidden_state), dim=1)
-        h_candidate = torch.tanh(self.out_gate(combined_reset))
-
-        # Update hidden state
-        hidden_state = update * hidden_state + (1 - update) * h_candidate
-
-        # Apply fully connected layer to the final hidden state
-        output = self.fc(hidden_state)
-
-        return output, hidden_state
-
-    def init_hidden(self, bs=batch_size):
-        return torch.zeros(bs, self.hidden_size)
-
-
-class ExMLP(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size):
-        super(ExMLP, self).__init__()
-
-        self.ReLU = torch.nn.ReLU()
-
-        # Token-wise MLP network weights
-        self.layer1 = MatMul(input_size, hidden_size)
-        # additional layer(s)
-
-    def name(self):
-        return "MLP"
-
-    def forward(self, x):
-        # Token-wise MLP network implementation
-
-        x = self.layer1(x)
-        x = self.ReLU(x)
-        # rest
-
-        return x
-
-
-# class ExLRestSelfAtten(nn.Module):
-#     def __init__(self, input_size, output_size, hidden_size):
-#         super(ExRestSelfAtten, self).__init__()
-#
-#         self.input_size = input_size
-#         self.output_size = output_size
-#         self.sqrt_hidden_size = np.sqrt(float(hidden_size))
-#         self.ReLU = torch.nn.ReLU()
-#         self.softmax = torch.nn.Softmax(2)
-#
-#         # Token-wise MLP + Restricted Attention network implementation
-#
-#         self.layer1 = MatMul(input_size,hidden_size)
-#         self.W_q = MatMul(hidden_size, hidden_size, use_bias=False)
-#         # rest ...
-#
-#
-#     def name(self):
-#         return "MLP_atten"
-#
-#     def forward(self, x):
-#
-#         # Token-wise MLP + Restricted Attention network implementation
-#
-#         x = self.layer1(x)
-#         x = self.ReLU(x)
-#
-#         # generating x in offsets between -atten_size and atten_size
-#         # with zero padding at the ends
-#
-#         padded = pad(x,(0,0,atten_size,atten_size,0,0))
-#
-#         x_nei = []
-#         for k in range(-atten_size,atten_size+1):
-#             x_nei.append(torch.roll(padded, k, 1))
-#
-#         x_nei = torch.stack(x_nei,2)
-#         x_nei = x_nei[:,atten_size:-atten_size,:]
-#
-#         # x_nei has an additional axis that corresponds to the offset
-#
-#         # Applying attention layer
-#
-#         # query = ...
-#         # keys = ...
-#         # vals = ...
-#
-#
-#         return x, atten_weights
-
-
-# prints portion of the review (20-30 first words), with the sub-scores each work obtained
-# prints also the final scores, the softmaxed prediction values and the true label values
-
-def print_review(rev_text, sbs1, sbs2, lbl1, lbl2):
-    pass
-
-
-# select model to use
 if __name__ == '__main__':
 
     if run_recurrent:
@@ -221,11 +34,11 @@ if __name__ == '__main__':
             model = ExRNN(input_size, output_size, hidden_size)
         else:
             model = ExGRU(input_size, output_size, hidden_size)
-    # else:
-    #     if atten_size > 0:
-    #         model = ExRestSelfAtten(input_size, output_size, hidden_size)
-    #     else:
-    #         model = ExMLP(input_size, output_size, hidden_size)
+    else:
+        # if atten_size > 0:
+        #     model = ExRestSelfAtten(input_size, output_size, hidden_size)
+        # else:
+            model = ExMLP(input_size, output_size, hidden_size)
 
     print("Using model: " + model.name())
 
@@ -236,10 +49,24 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    train_losses = []
+    test_losses = []
+    train_accuracies = []
+    test_accuracies = []
+    steps = []
+
+
+    def calculate_accuracy(outputs, labels):
+        _, predicted = torch.max(outputs, 1)
+        _, labels = torch.max(labels, 1)
+        correct = (predicted == labels).sum().item()
+        return correct / labels.size(0)
+
+
     train_loss = 1.0
     test_loss = 1.0
 
-    # training steps in which a test step is executed every test_interval
+    # Training steps in which a test step is executed every test_interval
 
     for epoch in range(num_epochs):
 
@@ -264,9 +91,7 @@ if __name__ == '__main__':
 
             else:
 
-                # Token-wise networks (MLP / MLP + Atten.)
-
-                sub_score = []
+                # Token-wise networks (MLP / MLP + atten)
                 if atten_size > 0:
                     # MLP + atten
                     sub_score, atten_weights = model(reviews)
@@ -277,11 +102,9 @@ if __name__ == '__main__':
                 output = torch.mean(sub_score, 1)
 
             # cross-entropy loss
-
             loss = criterion(output, torch.argmax(labels, dim=1))
 
             # optimize in training iterations
-
             if not test_iter:
                 optimizer.zero_grad()
                 loss.backward()
@@ -290,21 +113,106 @@ if __name__ == '__main__':
             # averaged losses
             if test_iter:
                 test_loss = 0.8 * float(loss.detach()) + 0.2 * test_loss
+                test_accuracy = calculate_accuracy(output, labels)
+                test_losses.append(test_loss)
+                test_accuracies.append(test_accuracy)
+                steps.append(itr + len(train_losses))  # track test steps
             else:
                 train_loss = 0.9 * float(loss.detach()) + 0.1 * train_loss
+                train_accuracy = calculate_accuracy(output, labels)
+                train_losses.append(train_loss)
+                train_accuracies.append(train_accuracy)
+                steps.append(itr + len(train_losses))  # track training steps
 
             if test_iter:
                 print(
                     f"Epoch [{epoch + 1}/{num_epochs}], "
                     f"Step [{itr + 1}/{len(train_dataset)}], "
                     f"Train Loss: {train_loss:.4f}, "
-                    f"Test Loss: {test_loss:.4f}"
+                    f"Test Loss: {test_loss:.4f}, "
+                    f"Train Accuracy: {train_accuracy:.4f}, "
+                    f"Test Accuracy: {test_accuracy:.4f}"
                 )
 
                 if not run_recurrent:
-                    nump_subs = sub_score.detach().numpy()
-                    labels = labels.detach().numpy()
-                    print_review(reviews_text[0], nump_subs[0, :, 0], nump_subs[0, :, 1], labels[0, 0], labels[0, 1])
+                    # Assuming sub_score, labels, and output are tensors
+                    nump_subs = sub_score.detach().numpy()  # Convert tensor to NumPy array
+                    labels_np = labels.detach().numpy()  # Convert tensor to NumPy array
+
+                    # Calculate average sub-scores across the batch
+                    avg_sub_scores = np.mean(nump_subs, axis=1)
+
+                    # Assuming output is a tensor, convert it to a NumPy array
+                    output_np = output.detach().numpy()
+
+                    # Print the review using the updated print_review function
+                    # print_review(reviews_text[0], avg_sub_scores[0], labels_np[0], np.argmax(output_np[0]),
+                    #              nump_subs[0])
 
                 # saving the model
                 torch.save(model, model.name() + ".pth")
+
+    # Evaluate the model on the test data and print examples of TP, TN, FN, FP
+    true_positive = None
+    true_negative = None
+    false_positive = None
+    false_negative = None
+
+    for labels, reviews, reviews_text in test_dataset:
+        if run_recurrent:
+            hidden_state = model.init_hidden(int(labels.shape[0]))
+            for i in range(num_words):
+                output, hidden_state = model(reviews[:, i, :], hidden_state)
+        else:
+            if atten_size > 0:
+                sub_score, atten_weights = model(reviews)
+            else:
+                sub_score = model(reviews)
+            output = torch.mean(sub_score, 1)
+
+        _, predicted = torch.max(output, 1)
+        _, true_labels = torch.max(labels, 1)
+
+        avg_sub_score = torch.mean(sub_score, dim=1).detach().numpy()
+
+        for i in range(len(predicted)):
+            if predicted[i] == 1 and true_labels[i] == 1:
+                if true_positive is None:
+                    true_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
+                                     sub_score[i].detach().numpy())
+            elif predicted[i] == 0 and true_labels[i] == 0:
+                if true_negative is None:
+                    true_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
+                                     sub_score[i].detach().numpy())
+            elif predicted[i] == 1 and true_labels[i] == 0:
+                if false_positive is None:
+                    false_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
+                                      sub_score[i].detach().numpy())
+            elif predicted[i] == 0 and true_labels[i] == 1:
+                if false_negative is None:
+                    false_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
+                                      sub_score[i].detach().numpy())
+
+    print("\nTrue Positive:")
+    if true_positive:
+        print_review(*true_positive)
+    else:
+        print("No True Positive example found.")
+
+    print("\nTrue Negative:")
+    if true_negative:
+        print_review(*true_negative)
+    else:
+        print("No True Negative example found.")
+
+    print("\nFalse Positive:")
+    if false_positive:
+        print_review(*false_positive)
+    else:
+        print("No False Positive example found.")
+
+    print("\nFalse Negative:")
+    if false_negative:
+        print_review(*false_negative)
+    else:
+        print("No False Negative example found.")
