@@ -79,6 +79,8 @@ def collact_batch(batch):
 
 my_test_texts = []
 my_test_labels = []
+my_test_texts.append("this is bad, but I enjoyed the acting very much")
+my_test_labels.append("neg")
 # False negative
 my_test_texts.append(
     " i was looking over our dvd tower last night for something to watch we were between netflix mailings and it was quiet saturday night pulled one out that never heard of before and realized it was borrowed from friend from the jacket it sounded like rip off of the big chill but with the all star cast felt it might be worth watching boy was wrong not only was it like the big chill it was rip off almost character by character the bill paxton character was copy of william hurt where have you been all this time role spoiler")
