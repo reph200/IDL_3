@@ -1,136 +1,89 @@
 import torch
 
-from parameters import run_recurrent, atten_size, max_len_selected_review
-from sentiment_start import test_dataset, num_words, print_review, input_size
+from loader import preprocess_review, device, my_test_texts, my_test_labels
 
 
-def evalute_MLP():
-    model = torch.load('MLP.pth')
-    # Evaluate the model on the test data and print examples of TP, TN, FN, FP
-    true_positive = None
-    true_negative = None
-    false_positive = None
-    false_negative = None
+def print_review(rev_text, avg_sub_score, true_label, predicted_label, sub_scores):
+    print(f"Review: {' '.join(rev_text)}")
+    print(f"Avg Sub-scores: {avg_sub_score}")
+    print(f"True Label: {true_label}")
+    print(f"Predicted Label: {predicted_label}")
+    print("Sub-scores for each word:")
+    for word, score in zip(rev_text, sub_scores):
+        print(f"  {word}: {score}")
+    print()
 
-    for labels, reviews, reviews_text in test_dataset:
-        if run_recurrent:
-            hidden_state = model.init_hidden(int(labels.shape[0]))
-            for i in range(num_words):
-                output, hidden_state = model(reviews[:, i, :], hidden_state)
-        else:
-            if atten_size > 0:
-                sub_score, atten_weights = model(reviews)
-            else:
-                sub_score = model(reviews)
-            output = torch.mean(sub_score, 1)
+# Evaluation function for the MLP model
+def evaluate_mlp_model(mlp_model_path, test_texts, test_labels):
+    mlp_model = torch.load(mlp_model_path)
+    mlp_model.eval()  # Set the model to evaluation mode
 
-        _, predicted = torch.max(output, 1)
-        _, true_labels = torch.max(labels, 1)
+    correct = 0
+    total = 0
 
-        avg_sub_score = torch.mean(sub_score, dim=1).detach().numpy()
+    with torch.no_grad():
+        for review_text, true_label in zip(test_texts, test_labels):
+            # Preprocess the review
+            review_tensor = preprocess_review(review_text).to(device)
 
-        for i in range(len(predicted)):
-            if len(reviews_text[i]) < max_len_selected_review:  # Restrict reviews to under 15 words
-                if predicted[i] == 1 and true_labels[i] == 1:
-                    if true_positive is None:
-                        true_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                         sub_score[i].detach().numpy())
-                elif predicted[i] == 0 and true_labels[i] == 0:
-                    if true_negative is None:
-                        true_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                         sub_score[i].detach().numpy())
-                elif predicted[i] == 1 and true_labels[i] == 0:
-                    if false_positive is None:
-                        false_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                          sub_score[i].detach().numpy())
-                elif predicted[i] == 0 and true_labels[i] == 1:
-                    if false_negative is None:
-                        false_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                          sub_score[i].detach().numpy())
+            # Get the model's output
+            sub_scores = mlp_model(review_tensor)
+            output = torch.mean(sub_scores, 1)
+            _, predicted = torch.max(output, 1)
 
-    print("\nTrue Positive:")
-    if true_positive:
-        print_review(*true_positive)
-    else:
-        print("No True Positive example found.")
+            # Convert predicted and true labels to integers
+            true_label_int = 1 if true_label == "neg" else 0
+            predicted_int = predicted.item()
 
-    print("\nTrue Negative:")
-    if true_negative:
-        print_review(*true_negative)
-    else:
-        print("No True Negative example found.")
+            # Update the correct and total counts
+            total += 1
+            correct += (predicted_int == true_label_int)
 
-    print("\nFalse Positive:")
-    if false_positive:
-        print_review(*false_positive)
-    else:
-        print("No False Positive example found.")
+            # Print the results for each review
+            avg_sub_score = torch.mean(sub_scores, dim=1).detach()
+            print_review(review_text.split(), avg_sub_score, true_label, 'pos' if predicted_int == 0 else 'neg', sub_scores.squeeze().tolist())
 
-    print("\nFalse Negative:")
-    if false_negative:
-        print_review(*false_negative)
-    else:
-        print("No False Negative example found.")
+    accuracy = correct / total
+    print(f"\nAccuracy: {accuracy:.2f}")
 
-def evalute_MLP_atten():
-    # model = torch.load('MLP_atten.pth')
-    model = torch.load('MLP.pth')
-    # Function to evaluate the model on given reviews
-    def evaluate_reviews(reviews, true_labels):
-        reviews_tensor = []  # Preprocess the reviews into tensors
-        reviews_text = []  # Store the original review text
-        for review in reviews:
-            review_tensor, review_text = preprocess_review(review)
-            reviews_tensor.append(review_tensor)
-            reviews_text.append(review_text)
+# Evaluation function for the MLP_ATTN model
+def evaluate_mlp_atten_model(mlp_atten_model_path, test_texts, test_labels):
+    mlp_atten_model = torch.load(mlp_atten_model_path)
+    mlp_atten_model.eval()  # Set the model to evaluation mode
 
-        reviews_tensor = torch.stack(reviews_tensor)
-        true_labels_tensor = torch.tensor(true_labels, dtype=torch.long)
+    correct = 0
+    total = 0
 
-        if run_recurrent:
-            hidden_state = model.init_hidden(len(reviews_tensor))
-            for i in range(num_words):
-                output, hidden_state = model(reviews_tensor[:, i, :], hidden_state)
-        else:
-            if atten_size > 0:
-                sub_score, atten_weights = model(reviews_tensor)
-            else:
-                sub_score = model(reviews_tensor)
-            output = torch.mean(sub_score, 1)
+    with torch.no_grad():
+        for review_text, true_label in zip(test_texts, test_labels):
+            # Preprocess the review
+            review_tensor = preprocess_review(review_text).to(device)
 
-        _, predicted = torch.max(output, 1)
+            # Get the model's output
+            sub_scores, atten_weights = mlp_atten_model(review_tensor)
+            output = torch.mean(sub_scores, 1)
+            _, predicted = torch.max(output, 1)
 
-        for i in range(len(predicted)):
-            avg_sub_score = torch.mean(sub_score[i], dim=0).detach().numpy()
-            print_review(reviews_text[i], avg_sub_score, true_labels_tensor[i].item(), predicted[i].item(),
-                         sub_score[i].detach().numpy())
+            # Convert predicted and true labels to integers
+            true_label_int = 1 if true_label == "neg" else 0
+            predicted_int = predicted.item()
 
+            # Update the correct and total counts
+            total += 1
+            correct += (predicted_int == true_label_int)
 
-    def preprocess_review(review):
-        # Dummy preprocessing function, should be replaced with actual preprocessing
-        # Here, it's assumed the review is already tokenized and converted to tensor
-        tokens = review.split()
-        review_tensor = torch.zeros(num_words, input_size)
-        for i, token in enumerate(tokens[:num_words]):
-            # Here you need to convert token to an index, for now, it is dummy values
-            review_tensor[i] = torch.tensor([float(ord(c)) for c in token] + [0] * (input_size - len(token)))
-        return review_tensor, tokens
+            # Print the results for each review
+            avg_sub_score = torch.mean(sub_scores,dim=1).detach()
+            print_review(review_text.split(), avg_sub_score, true_label, 'positive' if predicted_int == 0 else 'negative', sub_scores.squeeze().tolist())
 
-
-    # List of 4 reviews to evaluate (dummy data, replace with actual reviews)
-    reviews_to_evaluate = [
-        "comment this movie is impossible is terrible very improbable bad interpretation direction not look.",
-        "ming the merciless does little bardwork and movie most foul",
-        "just love the interplay between two great characters of stage screen veidt barrymore",
-        "this is the definitive movie version of hamlet branagh cuts nothing but there are no wasted moments",
-        "it was really bad movie it was not like last time hope next time will be fun","very good good very good good bad"
-    ]
-
-    # List of true labels for the 4 reviews (dummy data, replace with actual labels)
-    true_labels = [1, 1, 0, 0, 1,1]
-
-    evaluate_reviews(reviews_to_evaluate, true_labels)
+    accuracy = correct / total
+    print(f"\nAccuracy: {accuracy:.2f}")
+    print()
 
 if __name__ == '__main__':
-    # evalute_MLP()
-    evalute_MLP_atten()
+    evaluate_mlp_model("MLP.pth", my_test_texts, my_test_labels)
+    evaluate_mlp_atten_model("MLP_atten.pth", my_test_texts, my_test_labels)
+
+
+
+

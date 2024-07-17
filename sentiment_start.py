@@ -16,18 +16,6 @@ from parameters import run_recurrent, use_RNN, output_size, hidden_size, atten_s
 
 train_dataset, test_dataset, num_words, input_size = ld.get_data_set(batch_size)
 
-
-# Prints the review, average sub-scores, true label, predicted label, and sub-scores for each word
-def print_review(rev_text, avg_sub_score, true_label, predicted_label, sub_scores):
-    print(f"Review: {' '.join(rev_text)}")
-    print(f"Avg Sub-scores: {avg_sub_score}")
-    print(f"True Label: {true_label}")
-    print(f"Predicted Label: {predicted_label}")
-    print("Sub-scores for each word:")
-    for word, score in zip(rev_text, sub_scores):
-        print(f"  {word}: {score}")
-
-
 if __name__ == '__main__':
 
     if run_recurrent:
@@ -149,9 +137,7 @@ if __name__ == '__main__':
                     # Assuming output is a tensor, convert it to a NumPy array
                     output_np = output.detach().numpy()
 
-                    # Print the review using the updated print_review function
-                    # print_review(reviews_text[0], avg_sub_scores[0], labels_np[0], np.argmax(output_np[0]),
-                    #              nump_subs[0])
+
 
                 # saving the model
                 torch.save(model, model.name() + ".pth")

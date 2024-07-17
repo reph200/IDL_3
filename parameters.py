@@ -6,7 +6,7 @@ hidden_size = 64  # Option 1
 
 run_recurrent = False  # else run Token-wise MLP
 use_RNN = False  # otherwise GRU
-atten_size = 0  # atten > 0 means using restricted self atten
+atten_size = 5  # atten > 0 means using restricted self atten
 
 reload_model = False
 num_epochs = 10
