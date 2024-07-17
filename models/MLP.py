@@ -14,7 +14,6 @@ class ExMLP(nn.Module):
         super(ExMLP, self).__init__()
 
         self.ReLU = torch.nn.ReLU()
-
         # Token-wise MLP network weights
         self.layer1 = MatMul(input_size, hidden_size)
         self.layer2 = MatMul(hidden_size, output_size)

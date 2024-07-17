@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 from models.GRU import ExGRU
 from models.MLP import ExMLP
 from models.RNN import ExRNN
+from models.RestSelfAtten import ExRestSelfAtten
 from parameters import run_recurrent, use_RNN, output_size, hidden_size, atten_size, learning_rate, num_epochs, \
-    test_interval, batch_size, reload_model
+    test_interval, batch_size, reload_model, max_len_selected_review
 
 # Loading dataset, use toy = True for obtaining a smaller dataset
 
@@ -35,16 +36,19 @@ if __name__ == '__main__':
         else:
             model = ExGRU(input_size, output_size, hidden_size)
     else:
-        # if atten_size > 0:
-        #     model = ExRestSelfAtten(input_size, output_size, hidden_size)
-        # else:
+        if atten_size > 0:
+            model = ExRestSelfAtten(input_size, output_size, hidden_size)
+        else:
             model = ExMLP(input_size, output_size, hidden_size)
 
     print("Using model: " + model.name())
 
     if reload_model:
         print("Reloading model")
-        model.load_state_dict(torch.load(model.name() + ".pth"))
+        # model.load_state_dict(torch.load(model.name() + ".pth"))
+        # model = torch.load('MLP_atten.pth')
+        model = torch.load('MLP.pth')
+
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -151,68 +155,3 @@ if __name__ == '__main__':
 
                 # saving the model
                 torch.save(model, model.name() + ".pth")
-
-    # Evaluate the model on the test data and print examples of TP, TN, FN, FP
-    true_positive = None
-    true_negative = None
-    false_positive = None
-    false_negative = None
-
-    for labels, reviews, reviews_text in test_dataset:
-        if run_recurrent:
-            hidden_state = model.init_hidden(int(labels.shape[0]))
-            for i in range(num_words):
-                output, hidden_state = model(reviews[:, i, :], hidden_state)
-        else:
-            if atten_size > 0:
-                sub_score, atten_weights = model(reviews)
-            else:
-                sub_score = model(reviews)
-            output = torch.mean(sub_score, 1)
-
-        _, predicted = torch.max(output, 1)
-        _, true_labels = torch.max(labels, 1)
-
-        avg_sub_score = torch.mean(sub_score, dim=1).detach().numpy()
-
-        for i in range(len(predicted)):
-            if predicted[i] == 1 and true_labels[i] == 1:
-                if true_positive is None:
-                    true_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                     sub_score[i].detach().numpy())
-            elif predicted[i] == 0 and true_labels[i] == 0:
-                if true_negative is None:
-                    true_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                     sub_score[i].detach().numpy())
-            elif predicted[i] == 1 and true_labels[i] == 0:
-                if false_positive is None:
-                    false_positive = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                      sub_score[i].detach().numpy())
-            elif predicted[i] == 0 and true_labels[i] == 1:
-                if false_negative is None:
-                    false_negative = (reviews_text[i], avg_sub_score[i], true_labels[i].item(), predicted[i].item(),
-                                      sub_score[i].detach().numpy())
-
-    print("\nTrue Positive:")
-    if true_positive:
-        print_review(*true_positive)
-    else:
-        print("No True Positive example found.")
-
-    print("\nTrue Negative:")
-    if true_negative:
-        print_review(*true_negative)
-    else:
-        print("No True Negative example found.")
-
-    print("\nFalse Positive:")
-    if false_positive:
-        print_review(*false_positive)
-    else:
-        print("No False Positive example found.")
-
-    print("\nFalse Negative:")
-    if false_negative:
-        print_review(*false_negative)
-    else:
-        print("No False Negative example found.")
